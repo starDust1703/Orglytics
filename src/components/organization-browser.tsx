@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Organization } from "@/types/organization";
 
@@ -23,7 +23,8 @@ type IconName =
   | "chevron-left"
   | "chevron-right"
   | "chevrons-left"
-  | "chevrons-right";
+  | "chevrons-right"
+  | "search";
 
 function Icon({ name, className = "size-4" }: { name: IconName; className?: string }) {
   const paths: Record<IconName, ReactNode> = {
@@ -35,6 +36,7 @@ function Icon({ name, className = "size-4" }: { name: IconName; className?: stri
     "chevron-right": <path d="m9 18 6-6-6-6" />,
     "chevrons-left": <path d="m11 17-5-5 5-5m7 10-5-5 5-5" />,
     "chevrons-right": <path d="m13 17 5-5-5-5M6 17l5-5-5-5" />,
+    search: <path d="m21 21-4.35-4.35m1.35-5.65a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z" />,
   };
 
   return (
@@ -65,6 +67,108 @@ function tags(value: string) {
     .slice(0, 4);
 }
 
+function values(value: string) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function MultiSelectDropdown({
+  label,
+  options,
+  selected,
+  onChange,
+  emptyLabel,
+}: {
+  label: string;
+  options: string[];
+  selected: string[];
+  onChange: (nextValues: string[]) => void;
+  emptyLabel: string;
+}) {
+  const summary = selected.length
+    ? `${selected.length} selected`
+    : emptyLabel;
+  const dropdownRef = useRef<HTMLDetailsElement>(null);
+
+  useEffect(() => {
+    function closeOnOutsideClick(event: PointerEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        dropdownRef.current.open = false;
+      }
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, []);
+
+  return (
+    <details ref={dropdownRef} className="group relative flex-1 text-sm font-medium text-slate-700">
+      <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl border border-slate-300 bg-white px-3 py-3 outline-none transition hover:border-slate-400 focus-visible:ring-2 focus-visible:ring-indigo-600/20 [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {label}
+          </span>
+          <span className={selected.length ? "text-slate-950" : "text-slate-500"}>
+            {summary}
+          </span>
+        </span>
+        <Icon
+          name="chevron-down"
+          className="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180"
+        />
+      </summary>
+
+      <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-2 pb-2">
+          <span className="text-xs text-slate-500">
+            {selected.length ? `${selected.length} selected` : "Select any"}
+          </span>
+          {selected.length ? (
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="text-xs font-semibold text-indigo-700 hover:text-indigo-900"
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+        <div className="max-h-64 overflow-y-auto pt-1">
+          {options.length ? (
+            options.map((option) => {
+              const isSelected = selected.includes(option);
+              return (
+                <label
+                  key={option}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm text-slate-700 transition hover:bg-indigo-50 hover:text-indigo-900"
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => {
+                      onChange(
+                        isSelected
+                          ? selected.filter((value) => value !== option)
+                          : [...selected, option],
+                      );
+                    }}
+                    className="size-4 rounded border-slate-300 accent-indigo-600"
+                  />
+                  <span className="truncate">{option}</span>
+                </label>
+              );
+            })
+          ) : (
+            <p className="px-2 py-3 text-sm text-slate-500">No options available.</p>
+          )}
+        </div>
+      </div>
+    </details>
+  );
+}
+
 export default function OrganizationBrowser() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [targetYear, setTargetYear] = useState<number | null>(null);
@@ -72,6 +176,10 @@ export default function OrganizationBrowser() {
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("probability");
   const [direction, setDirection] = useState<SortDirection>("desc");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [technologyFilters, setTechnologyFilters] = useState<string[]>([]);
+  const [yearFilters, setYearFilters] = useState<string[]>([]);
+  const [minimumProbability, setMinimumProbability] = useState(0);
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -127,9 +235,31 @@ export default function OrganizationBrowser() {
     };
   }, []);
 
+  const technologyOptions = useMemo(() => {
+    return Array.from(
+      new Set(organizations.flatMap((organization) => values(organization.technology))),
+    ).sort(compareText);
+  }, [organizations]);
+
+  const yearOptions = useMemo(() => {
+    return Array.from(
+      new Set(organizations.flatMap((organization) => values(organization.years))),
+    ).sort((left, right) => Number(right) - Number(left));
+  }, [organizations]);
+
+  const filteredOrganizations = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase();
+    return organizations.filter((organization) =>
+      (!query || organization.name.toLocaleLowerCase().includes(query)) &&
+      (!technologyFilters.length || technologyFilters.some((technology) => values(organization.technology).includes(technology))) &&
+      (!yearFilters.length || yearFilters.some((year) => values(organization.years).includes(year))) &&
+      organization.probability >= minimumProbability,
+    );
+  }, [minimumProbability, organizations, searchQuery, technologyFilters, yearFilters]);
+
   const sortedOrganizations = useMemo(() => {
     const multiplier = direction === "asc" ? 1 : -1;
-    return [...organizations].sort((left, right) => {
+    return [...filteredOrganizations].sort((left, right) => {
       let result = 0;
 
       if (sortKey === "name") {
@@ -140,7 +270,7 @@ export default function OrganizationBrowser() {
 
       return result === 0 ? compareText(left.name, right.name) : result * multiplier;
     });
-  }, [direction, organizations, sortKey]);
+  }, [direction, filteredOrganizations, sortKey]);
 
   if (loading) {
     return (
@@ -327,6 +457,87 @@ export default function OrganizationBrowser() {
           </div>
         </div>
 
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <label className="relative block w-full sm:max-w-md">
+            <span className="sr-only">Search organizations by name</span>
+            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-400">
+              <Icon name="search" className="size-5" />
+            </span>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => {
+                setSearchQuery(event.target.value);
+                setPage(1);
+              }}
+              placeholder="Search organizations"
+              className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-4 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-600/20"
+            />
+          </label>
+          {searchQuery ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery("");
+                setPage(1);
+              }}
+              className="self-start text-sm font-semibold text-indigo-700 transition hover:text-indigo-900 sm:self-auto"
+            >
+              Clear search
+            </button>
+          ) : null}
+        </div>
+
+        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+            <MultiSelectDropdown
+              label="Technology"
+              options={technologyOptions}
+              selected={technologyFilters}
+              onChange={(nextValues) => {
+                setTechnologyFilters(nextValues);
+                setPage(1);
+              }}
+              emptyLabel="All technologies"
+            />
+
+            <MultiSelectDropdown
+              label="Participation year"
+              options={yearOptions}
+              selected={yearFilters}
+              onChange={(nextValues) => {
+                setYearFilters(nextValues);
+                setPage(1);
+              }}
+              emptyLabel="All years"
+            />
+
+            <label className="flex-1 text-sm font-medium text-slate-700 lg:min-w-72">
+              <span className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <span>Minimum probability</span>
+                <span className="text-indigo-700">{Math.round(minimumProbability * 100)}%+</span>
+              </span>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={minimumProbability}
+                onChange={(event) => {
+                  setMinimumProbability(Number(event.target.value));
+                  setPage(1);
+                }}
+                aria-label="Minimum predicted probability"
+                className="mt-2 w-full accent-indigo-600"
+              />
+              <span className="mt-1 flex justify-between text-xs text-slate-400">
+                <span>0%</span>
+                <span>100%</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
         <div className="mb-6 flex flex-col gap-2 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
           <p>
             Showing {visibleOrganizations.length ? pageStart + 1 : 0}–
@@ -338,8 +549,9 @@ export default function OrganizationBrowser() {
           </p>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {visibleOrganizations.map((organization) => (
+        {visibleOrganizations.length ? (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {visibleOrganizations.map((organization) => (
             <Link
               key={organization.name}
               href={`/${encodeURIComponent(organization.name)}`}
@@ -399,8 +611,16 @@ export default function OrganizationBrowser() {
                 </div>
               </div>
             </Link>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center shadow-sm">
+            <h2 className="text-lg font-semibold text-slate-950">No organizations found</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              No organization title matches “{searchQuery}”.
+            </p>
+          </div>
+        )}
 
         <nav aria-label="Organization pages" className="mt-10 flex flex-wrap items-center justify-center gap-2">
           <button
