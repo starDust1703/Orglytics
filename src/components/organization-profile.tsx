@@ -220,14 +220,15 @@ export default function OrganizationProfile({ organizationName }: { organization
             <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-1">
               {organization.website ? <a href={organization.website} target="_blank" rel="noreferrer" className="group/link inline-flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 font-semibold text-slate-800 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800 hover:shadow-sm"><span>Visit website</span><ExternalLinkIcon /></a> : null}
               {organization.gsocLink ? <a href={organization.gsocLink} target="_blank" rel="noreferrer" className="group/link inline-flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 font-semibold text-slate-800 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800 hover:shadow-sm"><span>Open GSoC page</span><ExternalLinkIcon /></a> : null}
-              {!organization.website && !organization.gsocLink ? <span>Not available</span> : null}
+              {organization.contributorGuidance ? <a href={organization.contributorGuidance} target="_blank" rel="noreferrer" className="group/link inline-flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 font-semibold text-slate-800 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800 hover:shadow-sm"><span>Contributor guidance</span><ExternalLinkIcon /></a> : null}
+              {!organization.website && !organization.gsocLink && !organization.contributorGuidance ? <span>Not available</span> : null}
             </div>
           </DetailCard>
         </div>
 
         <div className="mt-4">
           <DetailCard label="Description">
-            <p>{organization.description || "No description is available."}</p>
+            <p className="whitespace-pre-line">{organization.longDescription || organization.description || "No description is available."}</p>
             <div className="mt-6 grid gap-5 border-t border-slate-100 pt-5 sm:grid-cols-2">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Technologies</p>

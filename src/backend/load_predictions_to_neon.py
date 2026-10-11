@@ -89,7 +89,7 @@ def read_predictions(path: Path) -> tuple[int, list[dict[str, object]]]:
         target_year = int(prediction_match.group("year"))
         probability_column = f"Probability {target_year}"
         required = {
-            "Organization", "Description", "Tech", "Topic", "Website", "GSoC-link",
+            "Organization", "Description", "Long Description", "Tech", "Topic", "Website", "GSoC-link", "Contributor-guidance",
             *PRESENCE_COLUMNS, "Years", f"Predicted {target_year}", probability_column,
             "Model", "Training target",
         }
@@ -111,10 +111,12 @@ def read_predictions(path: Path) -> tuple[int, list[dict[str, object]]]:
             rows.append({
                 "organization": organization,
                 "description": (row.get("Description") or "").strip(),
+                "long_description": (row.get("Long Description") or "").strip(),
                 "tech": (row.get("Tech") or "").strip(),
                 "topic": (row.get("Topic") or "").strip(),
                 "website": (row.get("Website") or "").strip(),
                 "gsoc_link": (row.get("GSoC-link") or "").strip(),
+                "contributor_guidance": (row.get("Contributor-guidance") or "").strip(),
                 **{
                     f"t_{index}": _as_optional_bool(row.get(f"T-{index}"))
                     for index in range(1, 6)
@@ -136,10 +138,12 @@ def create_table(connection: psycopg.Connection, table: str) -> None:
             CREATE TABLE IF NOT EXISTS {} (
                 organization TEXT NOT NULL,
                 description TEXT NOT NULL DEFAULT '',
+                long_description TEXT NOT NULL DEFAULT '',
                 tech TEXT NOT NULL DEFAULT '',
                 topic TEXT NOT NULL DEFAULT '',
                 website TEXT NOT NULL DEFAULT '',
                 gsoc_link TEXT NOT NULL DEFAULT '',
+                contributor_guidance TEXT NOT NULL DEFAULT '',
                 t_1 BOOLEAN,
                 t_2 BOOLEAN,
                 t_3 BOOLEAN,
@@ -160,25 +164,29 @@ def create_table(connection: psycopg.Connection, table: str) -> None:
                 table_id, sql.Identifier(column)
             ))
         cursor.execute(sql.SQL("ALTER TABLE {} ADD COLUMN IF NOT EXISTS years TEXT NOT NULL DEFAULT ''").format(table_id))
+        cursor.execute(sql.SQL("ALTER TABLE {} ADD COLUMN IF NOT EXISTS long_description TEXT NOT NULL DEFAULT ''").format(table_id))
+        cursor.execute(sql.SQL("ALTER TABLE {} ADD COLUMN IF NOT EXISTS contributor_guidance TEXT NOT NULL DEFAULT ''").format(table_id))
 
 
 def upsert_rows(connection: psycopg.Connection, table: str, rows: Iterable[dict[str, object]]) -> int:
     table_id = _table_identifier(table)
     query = sql.SQL("""
         INSERT INTO {} (
-            organization, description, tech, topic, website, gsoc_link,
+            organization, description, long_description, tech, topic, website, gsoc_link, contributor_guidance,
             t_1, t_2, t_3, t_4, t_5, years,
             target_year, predicted_presence, probability, model, training_target
-        ) VALUES (%(organization)s, %(description)s, %(tech)s, %(topic)s, %(website)s,
-                  %(gsoc_link)s, %(t_1)s, %(t_2)s, %(t_3)s, %(t_4)s, %(t_5)s, %(years)s,
+        ) VALUES (%(organization)s, %(description)s, %(long_description)s, %(tech)s, %(topic)s, %(website)s,
+                  %(gsoc_link)s, %(contributor_guidance)s, %(t_1)s, %(t_2)s, %(t_3)s, %(t_4)s, %(t_5)s, %(years)s,
                   %(target_year)s, %(predicted_presence)s, %(probability)s,
                   %(model)s, %(training_target)s)
         ON CONFLICT (organization, target_year) DO UPDATE SET
             description = EXCLUDED.description,
+            long_description = EXCLUDED.long_description,
             tech = EXCLUDED.tech,
             topic = EXCLUDED.topic,
             website = EXCLUDED.website,
             gsoc_link = EXCLUDED.gsoc_link,
+            contributor_guidance = EXCLUDED.contributor_guidance,
             t_1 = EXCLUDED.t_1,
             t_2 = EXCLUDED.t_2,
             t_3 = EXCLUDED.t_3,

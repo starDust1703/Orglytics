@@ -29,10 +29,12 @@ export async function GET(request: Request) {
       SELECT
         organization AS name,
         description,
+        long_description AS "longDescription",
         tech AS technology,
         topic,
         website,
         gsoc_link AS "gsocLink",
+        contributor_guidance AS "contributorGuidance",
         t_1 AS "t1",
         t_2 AS "t2",
         t_3 AS "t3",

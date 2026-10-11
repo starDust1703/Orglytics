@@ -31,7 +31,8 @@ python gsoc_org_scraper.py
 The workbook contains `Orgs` and `Scrape log` sheets. Predictions estimate organization presence in the next GSoC year, not project acceptance or contributor selection.
 
 The prediction CSV keeps the complete `Orgs` sheet row (`Organization`, `Description`,
-`Tech`, `Topic`, `Website`, `GSoC-link`, `T-1` through `T-5`, and `Years`) and adds
+`Long Description`, `Tech`, `Topic`, `Website`, `GSoC-link`, `Contributor-guidance`,
+`T-1` through `T-5`, and `Years`) and adds
 `Predicted YYYY`, `Probability YYYY`, `Model`, and `Training target`. The Neon loader
 validates and upserts this complete contract into `gsoc_predictions`.
 

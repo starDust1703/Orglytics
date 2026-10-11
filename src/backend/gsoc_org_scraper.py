@@ -87,6 +87,7 @@ class YearResult:
 
 @dataclass
 class OrgProfile:
+    long_description: str = ""
     technologies: str = ""
     topics: str = ""
     website_url: str = ""
@@ -672,6 +673,20 @@ class GSoCScraper:
             return False
 
     @staticmethod
+    def _is_utility_link(link: dict[str, str]) -> bool:
+        """Exclude consent, legal, and platform utility links from website guesses."""
+        host = link.get("host", "").casefold().removeprefix("www.")
+        text = link.get("text", "").casefold()
+        path = urlparse(link.get("url", "")).path.casefold()
+        if host in {"policies.google.com", "consent.google.com", "accounts.google.com"}:
+            return True
+        utility_terms = (
+            "cookie", "privacy policy", "terms of service", "terms and conditions",
+            "legal notice", "imprint", "accessibility statement",
+        )
+        return any(term in text or term.replace(" ", "-") in path for term in utility_terms)
+
+    @staticmethod
     def _ancestor_context(anchor: Tag, max_depth: int = 3) -> str:
         pieces: list[str] = []
         current: Tag | None = anchor
@@ -746,6 +761,17 @@ class GSoCScraper:
     def _split_tags(text: str) -> str:
         return re.sub(r"\s*,\s*", ", ", " ".join(text.split())).strip(" ,")
 
+    @staticmethod
+    def _clean_long_description(node: Tag | None) -> str:
+        if node is None:
+            return ""
+        paragraphs = []
+        for paragraph in node.get_text("\n", strip=True).splitlines():
+            cleaned = " ".join(paragraph.split())
+            if cleaned:
+                paragraphs.append(cleaned)
+        return "\n\n".join(paragraphs)
+
     def fetch_profile(self, card: OrgCard) -> OrgProfile:
         """Fetch profile HTML over HTTP and parse it without launching a browser."""
         try:
@@ -770,15 +796,15 @@ class GSoCScraper:
             page = self._ensure_browser()
             page.goto(card.detail_url, wait_until="domcontentloaded", timeout=60000)
             try:
-                page.wait_for_selector(".tags, .tech__content, .topics__content", timeout=9000)
+                page.wait_for_selector(".bd, .tags, .tech__content, .topics__content", timeout=9000)
             except Exception:
                 # Some valid organization pages expose links but omit one/both tag blocks.
                 page.wait_for_timeout(800)
             html = page.content()
             final_url = page.url or card.detail_url
             profile = self._parse_profile_html(card, html, final_url)
-            if not profile.technologies and not profile.topics and not profile.links:
-                profile.note = (profile.note + " Chromium rendering also exposed no technology/topic tags or links.").strip()
+            if not profile.long_description and not profile.technologies and not profile.topics and not profile.links:
+                profile.note = (profile.note + " Chromium rendering also exposed no description, technology/topic tags or links.").strip()
             return profile
         except Exception as exc:
             return OrgProfile(
@@ -790,12 +816,43 @@ class GSoCScraper:
     def _parse_profile_html(self, card: OrgCard, html: str, detail_url: str) -> OrgProfile:
         profile = OrgProfile(detail_url=detail_url, logo_url=card.logo_url)
         soup = BeautifulSoup(html, "html.parser")
+        profile.long_description = self._clean_long_description(soup.select_one(".bd"))
         tech = soup.select_one(".tags .tag.tech .tech__content") or soup.select_one(".tech__content")
         topics = soup.select_one(".tags .tag.topics .topics__content") or soup.select_one(".topics__content")
         profile.technologies = self._split_tags(self._clean_text(tech))
         profile.topics = self._split_tags(self._clean_text(topics))
 
+        # The rendered GSoC organization detail component exposes the official
+        # website in this dedicated link wrapper. Prefer it over any unrelated
+        # external links elsewhere on the page, such as cookie-policy links.
+        official_website = soup.select_one(
+            "app-org-info-details .link__wrapper a.link, "
+            ".link__wrapper a.link"
+        )
+        if official_website:
+            official_href = urljoin(detail_url, official_website.get("href", "").strip())
+            if self._external_http(official_href):
+                profile.website_url = official_href
+
         profile.contributor_guidance_url = ""
+        # GSoC commonly exposes contributor instructions as a button immediately
+        # before the detail component, labeled "View ideas list" rather than
+        # "Contributor Guidance".
+        for guidance_anchor in soup.select("app-org-info .button-wrapper a, .button-wrapper a"):
+            guidance_text = " ".join(guidance_anchor.get_text(" ", strip=True).split())
+            guidance_context = " ".join(
+                guidance_anchor.parent.get_text(" ", strip=True).split()
+            ) if isinstance(guidance_anchor.parent, Tag) else guidance_text
+            if not re.search(
+                r"view\s+ideas\s+list|contributor\s+guidance|project\s+ideas|contributing\s+guide",
+                f"{guidance_text} {guidance_context}",
+                re.IGNORECASE,
+            ):
+                continue
+            guidance_href = urljoin(detail_url, guidance_anchor.get("href", "").strip())
+            if self._external_http(guidance_href):
+                profile.contributor_guidance_url = guidance_href
+                break
 
         # Preserve all links from the rendered detail page, including project links,
         # socials, emails and internal GSoC links.
@@ -866,36 +923,49 @@ class GSoCScraper:
             if candidate_guidance and any(link["url"] == candidate_guidance for link in all_links):
                 profile.contributor_guidance_url = candidate_guidance
 
-        website_candidates: list[tuple[int, str, str, str]] = []
-        guidance_position = len(all_links)
-        for index, link in enumerate(all_links):
-            if link["url"] == profile.contributor_guidance_url:
-                guidance_position = min(guidance_position, index)
-            if not self._external_http(link["url"]):
-                continue
-            host = link["host"].removeprefix("www.")
-            text = link["text"].strip()
-            lower_text = text.casefold()
-            if (lower_text.strip() in SOCIAL_LABELS or
-                    re.match(r"^(twitter|facebook|instagram|linkedin|youtube|discord|mastodon|reddit|bluesky)(?:\s|$)", lower_text.strip())):
-                continue
-            if any(host == social or host.endswith("." + social) for social in SOCIAL_HOSTS):
-                continue
-            if link["url"] == profile.contributor_guidance_url:
-                continue
-            score = 0
-            if link["type"] == "website":
-                score += 10
-            if re.match(r"https?://", text, re.I) or re.fullmatch(r"[\w.-]+\.[a-z]{2,}(?:/.*)?", text, re.I):
-                score += 5
-            score += max(0, 3 - index)
-            website_candidates.append((score, link["url"], text, str(index)))
-        if website_candidates:
-            explicit = [candidate for candidate in website_candidates if candidate[0] >= 10]
-            pool = explicit or website_candidates
-            before_guidance = [candidate for candidate in pool if int(candidate[3]) < guidance_position]
-            chosen = max(before_guidance or pool, key=lambda item: item[0])
-            profile.website_url = chosen[1]
+        if not profile.website_url:
+            website_candidates: list[tuple[int, str, str, str]] = []
+            guidance_position = len(all_links)
+            organization_tokens = [
+                token for token in re.findall(r"[a-z0-9]+", self._normalized_name(card.name))
+                if len(token) >= 4
+            ]
+            compact_organization_name = "".join(organization_tokens)
+            for index, link in enumerate(all_links):
+                if link["url"] == profile.contributor_guidance_url:
+                    guidance_position = min(guidance_position, index)
+                if not self._external_http(link["url"]):
+                    continue
+                host = link["host"].removeprefix("www.")
+                text = link["text"].strip()
+                lower_text = text.casefold()
+                if (lower_text.strip() in SOCIAL_LABELS or
+                        re.match(r"^(twitter|facebook|instagram|linkedin|youtube|discord|mastodon|reddit|bluesky)(?:\s|$)", lower_text.strip())):
+                    continue
+                if any(host == social or host.endswith("." + social) for social in SOCIAL_HOSTS):
+                    continue
+                if link["url"] == profile.contributor_guidance_url:
+                    continue
+                if self._is_utility_link(link) and link["type"] != "website":
+                    continue
+                score = 0
+                if link["type"] == "website":
+                    score += 30
+                if re.match(r"https?://", text, re.I) or re.fullmatch(r"[\w.-]+\.[a-z]{2,}(?:/.*)?", text, re.I):
+                    score += 5
+                compact_host = re.sub(r"[^a-z0-9]+", "", host)
+                if compact_organization_name and compact_organization_name in compact_host:
+                    score += 15
+                else:
+                    score += sum(4 for token in organization_tokens if token in compact_host)
+                score += max(0, 3 - index)
+                website_candidates.append((score, link["url"], text, str(index)))
+            if website_candidates:
+                explicit = [candidate for candidate in website_candidates if candidate[0] >= 10]
+                pool = explicit or website_candidates
+                before_guidance = [candidate for candidate in pool if int(candidate[3]) < guidance_position]
+                chosen = max(before_guidance or pool, key=lambda item: item[0])
+                profile.website_url = chosen[1]
 
         for link in profile.links:
             if profile.contributor_guidance_url and link["url"] == profile.contributor_guidance_url:
@@ -959,7 +1029,7 @@ def _limit_widths(ws, max_width: int = 42) -> None:
             width = 34
         elif header in {"Organization", "Name"}:
             width = 32
-        elif header in {"Description", "Technologies", "Topics", "Text"}:
+        elif header in {"Description", "Long Description", "Technologies", "Topics", "Text"}:
             width = 34
         else:
             width = min(max_width, max(12, measured + 2))
@@ -982,7 +1052,7 @@ def export_workbook(
     history_years = [baseline_year - offset for offset in range(1, 6)]
     presence_headers = [f"T-{offset}" for offset in range(1, 6)]
     headers = [
-        "Organization", "Description", "Tech", "Topic", "Website", "GSoC-link",
+        "Organization", "Description", "Long Description", "Tech", "Topic", "Website", "GSoC-link", "Contributor-guidance",
         *presence_headers, "Years",
     ]
     org_ws.append(headers)
@@ -1002,14 +1072,15 @@ def export_workbook(
                     observed_years.append(year)
         profile: OrgProfile = record["profile"]
         rows.append([
-            record["name"], record.get("description", ""), profile.technologies,
-            profile.topics, profile.website_url, profile.detail_url,
+            record["name"], record.get("description", ""), profile.long_description,
+            profile.technologies, profile.topics, profile.website_url, profile.detail_url,
+            profile.contributor_guidance_url,
             *presence, ", ".join(map(str, sorted(observed_years, reverse=True))),
         ])
 
     # Put organizations with the most observed years first, then alphabetical.
     def row_sort_key(row: list[Any]) -> tuple[int, str]:
-        bool_values = row[6:11]
+        bool_values = row[8:13]
         count = sum(value is True for value in bool_values)
         return (-count, str(row[0]).casefold())
 
@@ -1185,15 +1256,25 @@ def main() -> int:
                     profile = OrgProfile(detail_url=card.detail_url, logo_url=card.logo_url, note=f"Profile scrape failed: {exc}")
 
                 # The old script only used requests for detail pages. If that HTML
-                # is an Angular shell, it silently leaves Technologies, Topics,
-                # Website and Links empty even though the page renders them in Chrome.
-                if (not profile.technologies and not profile.topics and scraper.browser_fallback):
-                    LOG.info("%s (%s): static profile lacks tags; retrying with Chromium.", card.name, profile_year)
+                # is an Angular shell, it silently leaves the long description,
+                # tags, website and links empty even though the page renders them in Chrome.
+                if ((not profile.long_description or not profile.technologies or not profile.topics)
+                        and scraper.browser_fallback):
+                    LOG.info("%s (%s): static profile is missing detail fields; retrying with Chromium.", card.name, profile_year)
                     browser_profile = scraper.fetch_profile_browser(card)
-                    if (browser_profile.technologies or browser_profile.topics or
-                            len(browser_profile.links) > len(profile.links)):
-                        profile = browser_profile
-                    elif browser_profile.note:
+                    if browser_profile.long_description and len(browser_profile.long_description) > len(profile.long_description):
+                        profile.long_description = browser_profile.long_description
+                    if browser_profile.technologies and not profile.technologies:
+                        profile.technologies = browser_profile.technologies
+                    if browser_profile.topics and not profile.topics:
+                        profile.topics = browser_profile.topics
+                    if browser_profile.website_url and not profile.website_url:
+                        profile.website_url = browser_profile.website_url
+                    if browser_profile.contributor_guidance_url and not profile.contributor_guidance_url:
+                        profile.contributor_guidance_url = browser_profile.contributor_guidance_url
+                    if len(browser_profile.links) > len(profile.links):
+                        profile.links = browser_profile.links
+                    if browser_profile.note:
                         profile.note = (profile.note + " " + browser_profile.note).strip()
 
                 organizations[key]["profiles_by_year"][profile_year] = profile

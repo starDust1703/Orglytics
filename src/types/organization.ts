@@ -1,10 +1,12 @@
 export type Organization = {
   name: string;
   description: string;
+  longDescription: string;
   technology: string;
   topic: string;
   website: string;
   gsocLink: string;
+  contributorGuidance: string;
   t1: boolean | null;
   t2: boolean | null;
   t3: boolean | null;
