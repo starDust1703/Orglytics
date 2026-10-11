@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
-import type { Organization } from "@/lib/organizations";
+import type { Organization } from "@/types/organization";
 
 const PAGE_SIZE = 50;
 
@@ -65,16 +65,43 @@ function tags(value: string) {
     .slice(0, 4);
 }
 
-export default function OrganizationBrowser({
-  organizations,
-  targetYear,
-}: {
-  organizations: Organization[];
-  targetYear: number;
-}) {
+export default function OrganizationBrowser() {
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [targetYear, setTargetYear] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("probability");
   const [direction, setDirection] = useState<SortDirection>("desc");
   const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetch("/api/organizations", { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Unable to load organizations.");
+        }
+        return response.json() as Promise<{
+          organizations: Organization[];
+          targetYear: number;
+        }>;
+      })
+      .then((data) => {
+        setOrganizations(data.organizations);
+        setTargetYear(data.targetYear);
+        setError(null);
+      })
+      .catch((fetchError: unknown) => {
+        if (fetchError instanceof DOMException && fetchError.name === "AbortError") {
+          return;
+        }
+        setError("We couldn’t load the organization forecasts. Please try again.");
+      })
+      .finally(() => setLoading(false));
+
+    return () => controller.abort();
+  }, []);
 
   const sortedOrganizations = useMemo(() => {
     const multiplier = direction === "asc" ? 1 : -1;
@@ -90,6 +117,28 @@ export default function OrganizationBrowser({
       return result === 0 ? compareText(left.name, right.name) : result * multiplier;
     });
   }, [direction, organizations, sortKey]);
+
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-[#f8fafc] text-slate-950">
+        <section className="mx-auto w-full max-w-7xl px-5 py-10 sm:px-8 sm:py-14">
+          <div className="h-12 w-80 animate-pulse rounded-xl bg-slate-200" />
+          <div className="mt-10 h-72 animate-pulse rounded-2xl bg-white shadow-sm" />
+        </section>
+      </main>
+    );
+  }
+
+  if (error || targetYear === null) {
+    return (
+      <main className="min-h-screen bg-[#f8fafc] text-slate-950">
+        <section className="mx-auto w-full max-w-2xl px-5 py-20 text-center sm:px-8">
+          <h1 className="text-2xl font-semibold">Unable to load forecasts</h1>
+          <p className="mt-3 text-slate-600">{error ?? "No forecast data is available."}</p>
+        </section>
+      </main>
+    );
+  }
 
   const totalPages = Math.max(1, Math.ceil(sortedOrganizations.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);

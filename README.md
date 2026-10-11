@@ -39,6 +39,14 @@ python load_predictions_to_neon.py
 
 ## Frontend
 
+The Next.js frontend reads organization forecasts through the backend route
+`GET /api/organizations`. That route queries the `gsoc_predictions` table in Neon;
+the browser and UI components do not read the CSV or connect to the database directly.
+
+Make `DATABASE_URL` available to the Next.js server in the project root `.env.local`,
+or keep it in `src/backend/.env` for local development. Never expose it as a
+`NEXT_PUBLIC_` variable.
+
 ```bash
 npm install
 npm run dev
