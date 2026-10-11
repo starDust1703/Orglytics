@@ -29,6 +29,12 @@ export async function GET() {
         topic,
         website,
         gsoc_link AS "gsocLink",
+        t_1 AS "t1",
+        t_2 AS "t2",
+        t_3 AS "t3",
+        t_4 AS "t4",
+        t_5 AS "t5",
+        years,
         predicted_presence AS "predictedPresence",
         probability,
         model,
@@ -39,7 +45,11 @@ export async function GET() {
     `) as OrganizationRow[];
 
     const response: OrganizationsResponse = {
-      organizations: rows.map(({ targetYear: _targetYear, ...organization }) => organization),
+      organizations: rows.map((row) => {
+        const { targetYear, ...organization } = row;
+        void targetYear;
+        return organization;
+      }),
       targetYear: rows[0]?.targetYear ?? new Date().getFullYear(),
     };
 

@@ -44,6 +44,7 @@ DEFAULT_TABLE = "gsoc_predictions"
 PREDICTION_RE = re.compile(r"^Predicted (?P<year>\d{4})$")
 PROBABILITY_RE = re.compile(r"^Probability (?P<year>\d{4})$")
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+PRESENCE_COLUMNS = ("T-1", "T-2", "T-3", "T-4", "T-5")
 
 
 def parse_args() -> argparse.Namespace:
@@ -69,6 +70,12 @@ def _as_bool(value: str) -> bool:
     raise ValueError(f"Invalid prediction boolean: {value!r}")
 
 
+def _as_optional_bool(value: str | None) -> bool | None:
+    if value is None or not value.strip():
+        return None
+    return _as_bool(value)
+
+
 def read_predictions(path: Path) -> tuple[int, list[dict[str, object]]]:
     if not path.exists():
         raise FileNotFoundError(f"Prediction CSV not found: {path}")
@@ -81,7 +88,11 @@ def read_predictions(path: Path) -> tuple[int, list[dict[str, object]]]:
             raise ValueError("CSV must contain a column named 'Predicted YYYY'.")
         target_year = int(prediction_match.group("year"))
         probability_column = f"Probability {target_year}"
-        required = {"Organization", "Description", "Tech", "Topic", "Website", "GSoC-link", f"Predicted {target_year}", probability_column, "Model"}
+        required = {
+            "Organization", "Description", "Tech", "Topic", "Website", "GSoC-link",
+            *PRESENCE_COLUMNS, "Years", f"Predicted {target_year}", probability_column,
+            "Model", "Training target",
+        }
         missing = sorted(required - set(fieldnames))
         if missing:
             raise ValueError(f"CSV is missing required columns: {', '.join(missing)}")
@@ -104,13 +115,16 @@ def read_predictions(path: Path) -> tuple[int, list[dict[str, object]]]:
                 "topic": (row.get("Topic") or "").strip(),
                 "website": (row.get("Website") or "").strip(),
                 "gsoc_link": (row.get("GSoC-link") or "").strip(),
+                **{
+                    f"t_{index}": _as_optional_bool(row.get(f"T-{index}"))
+                    for index in range(1, 6)
+                },
+                "years": (row.get("Years") or "").strip(),
                 "target_year": target_year,
                 "predicted_presence": _as_bool(row[f"Predicted {target_year}"]),
                 "probability": probability,
                 "model": (row.get("Model") or "").strip(),
-                # Prediction CSVs produced before this loader omitted the
-                # metadata column; the notebook's target is T-1 by design.
-                "training_target": (row.get("Training target") or "T-1").strip(),
+                "training_target": row["Training target"].strip(),
             })
     return target_year, rows
 
@@ -126,6 +140,12 @@ def create_table(connection: psycopg.Connection, table: str) -> None:
                 topic TEXT NOT NULL DEFAULT '',
                 website TEXT NOT NULL DEFAULT '',
                 gsoc_link TEXT NOT NULL DEFAULT '',
+                t_1 BOOLEAN,
+                t_2 BOOLEAN,
+                t_3 BOOLEAN,
+                t_4 BOOLEAN,
+                t_5 BOOLEAN,
+                years TEXT NOT NULL DEFAULT '',
                 target_year INTEGER NOT NULL,
                 predicted_presence BOOLEAN NOT NULL,
                 probability DOUBLE PRECISION NOT NULL CHECK (probability >= 0 AND probability <= 1),
@@ -135,6 +155,11 @@ def create_table(connection: psycopg.Connection, table: str) -> None:
                 PRIMARY KEY (organization, target_year)
             )
         """).format(table_id))
+        for column in ("t_1", "t_2", "t_3", "t_4", "t_5"):
+            cursor.execute(sql.SQL("ALTER TABLE {} ADD COLUMN IF NOT EXISTS {} BOOLEAN").format(
+                table_id, sql.Identifier(column)
+            ))
+        cursor.execute(sql.SQL("ALTER TABLE {} ADD COLUMN IF NOT EXISTS years TEXT NOT NULL DEFAULT ''").format(table_id))
 
 
 def upsert_rows(connection: psycopg.Connection, table: str, rows: Iterable[dict[str, object]]) -> int:
@@ -142,9 +167,11 @@ def upsert_rows(connection: psycopg.Connection, table: str, rows: Iterable[dict[
     query = sql.SQL("""
         INSERT INTO {} (
             organization, description, tech, topic, website, gsoc_link,
+            t_1, t_2, t_3, t_4, t_5, years,
             target_year, predicted_presence, probability, model, training_target
         ) VALUES (%(organization)s, %(description)s, %(tech)s, %(topic)s, %(website)s,
-                  %(gsoc_link)s, %(target_year)s, %(predicted_presence)s, %(probability)s,
+                  %(gsoc_link)s, %(t_1)s, %(t_2)s, %(t_3)s, %(t_4)s, %(t_5)s, %(years)s,
+                  %(target_year)s, %(predicted_presence)s, %(probability)s,
                   %(model)s, %(training_target)s)
         ON CONFLICT (organization, target_year) DO UPDATE SET
             description = EXCLUDED.description,
@@ -152,6 +179,12 @@ def upsert_rows(connection: psycopg.Connection, table: str, rows: Iterable[dict[
             topic = EXCLUDED.topic,
             website = EXCLUDED.website,
             gsoc_link = EXCLUDED.gsoc_link,
+            t_1 = EXCLUDED.t_1,
+            t_2 = EXCLUDED.t_2,
+            t_3 = EXCLUDED.t_3,
+            t_4 = EXCLUDED.t_4,
+            t_5 = EXCLUDED.t_5,
+            years = EXCLUDED.years,
             predicted_presence = EXCLUDED.predicted_presence,
             probability = EXCLUDED.probability,
             model = EXCLUDED.model,
