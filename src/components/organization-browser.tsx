@@ -76,31 +76,55 @@ export default function OrganizationBrowser() {
 
   useEffect(() => {
     const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 20_000);
+    let mounted = true;
 
-    fetch("/api/organizations", { signal: controller.signal, cache: "no-store" })
-      .then(async (response) => {
+    async function loadOrganizations() {
+      try {
+        const response = await fetch("/api/organizations", {
+          signal: controller.signal,
+          cache: "no-store",
+        });
+
         if (!response.ok) {
           throw new Error("Unable to load organizations.");
         }
-        return response.json() as Promise<{
+
+        const data = (await response.json()) as {
           organizations: Organization[];
           targetYear: number;
-        }>;
-      })
-      .then((data) => {
-        setOrganizations(data.organizations);
-        setTargetYear(data.targetYear);
-        setError(null);
-      })
-      .catch((fetchError: unknown) => {
+        };
+
+        if (mounted) {
+          setOrganizations(data.organizations);
+          setTargetYear(data.targetYear);
+          setError(null);
+        }
+      } catch (fetchError: unknown) {
+        if (!mounted) {
+          return;
+        }
+
         if (fetchError instanceof DOMException && fetchError.name === "AbortError") {
+          setError("The database took too long to respond. Please try again.");
           return;
         }
         setError("We couldn’t load the organization forecasts. Please try again.");
-      })
-      .finally(() => setLoading(false));
+      } finally {
+        window.clearTimeout(timeoutId);
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    }
 
-    return () => controller.abort();
+    void loadOrganizations();
+
+    return () => {
+      mounted = false;
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, []);
 
   const sortedOrganizations = useMemo(() => {
@@ -122,19 +146,84 @@ export default function OrganizationBrowser() {
     return (
       <main className="min-h-screen bg-[#f8fafc] text-slate-950">
         <section className="mx-auto w-full max-w-7xl px-5 py-10 sm:px-8 sm:py-14">
-          <div className="h-12 w-80 animate-pulse rounded-xl bg-slate-200" />
-          <div className="mt-10 h-72 animate-pulse rounded-2xl bg-white shadow-sm" />
+          <div className="mb-9 flex flex-col gap-6 border-b border-slate-200 pb-8 sm:flex-row sm:items-end sm:justify-between">
+            <div className="max-w-2xl">
+              <p className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-indigo-700">
+                Orglytics
+              </p>
+              <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+                GSoC organization forecast
+              </h1>
+              <p className="mt-4 text-base leading-7 text-slate-600">
+                Preparing the latest organization forecasts for you.
+              </p>
+            </div>
+            <div className="h-[68px] w-64 animate-pulse rounded-xl border border-slate-200 bg-white shadow-sm" />
+          </div>
+
+          <div
+            role="status"
+            aria-live="polite"
+            className="mb-6 flex items-center gap-3 rounded-xl border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-sm text-indigo-900"
+          >
+            <span
+              aria-hidden="true"
+              className="size-5 shrink-0 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-600"
+            />
+            <span>
+              <span className="font-semibold">Loading forecasts</span>
+              <span className="text-indigo-800/75"> — connecting to the latest data</span>
+            </span>
+          </div>
+
+          <div className="mb-6 flex items-center justify-between text-sm text-slate-400">
+            <div className="h-5 w-56 animate-pulse rounded-md bg-slate-200" />
+            <div className="h-5 w-20 animate-pulse rounded-md bg-slate-200" />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 6 }, (_, index) => (
+              <div
+                key={index}
+                className="min-h-72 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="h-6 w-3/5 animate-pulse rounded-md bg-slate-200" />
+                  <div className="h-6 w-16 animate-pulse rounded-full bg-slate-200" />
+                </div>
+                <div className="mt-5 space-y-2">
+                  <div className="h-3 w-full animate-pulse rounded bg-slate-100" />
+                  <div className="h-3 w-11/12 animate-pulse rounded bg-slate-100" />
+                  <div className="h-3 w-2/3 animate-pulse rounded bg-slate-100" />
+                </div>
+                <div className="mt-6 flex items-end justify-between border-y border-slate-100 py-4">
+                  <div>
+                    <div className="h-3 w-24 animate-pulse rounded bg-slate-100" />
+                    <div className="mt-2 h-8 w-20 animate-pulse rounded-md bg-slate-200" />
+                  </div>
+                  <div className="h-4 w-28 animate-pulse rounded bg-slate-100" />
+                </div>
+                <div className="mt-5 flex gap-2">
+                  <div className="h-6 w-16 animate-pulse rounded-md bg-slate-100" />
+                  <div className="h-6 w-20 animate-pulse rounded-md bg-slate-100" />
+                  <div className="h-6 w-14 animate-pulse rounded-md bg-slate-100" />
+                </div>
+              </div>
+            ))}
+          </div>
         </section>
       </main>
     );
   }
 
-  if (error || targetYear === null) {
+  if (error || targetYear === null || organizations.length === 0) {
     return (
       <main className="min-h-screen bg-[#f8fafc] text-slate-950">
         <section className="mx-auto w-full max-w-2xl px-5 py-20 text-center sm:px-8">
           <h1 className="text-2xl font-semibold">Unable to load forecasts</h1>
-          <p className="mt-3 text-slate-600">{error ?? "No forecast data is available."}</p>
+          <p className="mt-3 text-slate-600">
+            {error ?? "No forecast data is available."}
+          </p>
         </section>
       </main>
     );
