@@ -35,6 +35,6 @@ async function OrganizationContent({ params }: OrganizationPageProps) {
   }
 
   return (
-    <OrganizationProfile organizationName={organizationName} />
+    <OrganizationProfile key={organizationName} organizationName={organizationName} />
   );
 }

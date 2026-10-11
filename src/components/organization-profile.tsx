@@ -31,6 +31,45 @@ function ArrowIcon({ direction }: { direction: "left" | "right" }) {
   );
 }
 
+function ExternalLinkIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4 transition-transform group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M14 5h5v5" />
+      <path d="m19 5-8 8" />
+      <path d="M18 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+    </svg>
+  );
+}
+
+function StatusIcon({ present }: { present: boolean | null }) {
+  if (present === true) {
+    return (
+      <svg aria-hidden="true" className="size-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="m5 12 4 4L19 6" />
+      </svg>
+    );
+  }
+
+  if (present === false) {
+    return (
+      <svg aria-hidden="true" className="size-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+        <path d="m7 7 10 10M17 7 7 17" />
+      </svg>
+    );
+  }
+
+  return <span aria-hidden="true" className="text-xl font-semibold">—</span>;
+}
+
 function DetailCard({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -53,11 +92,6 @@ export default function OrganizationProfile({ organizationName }: { organization
       timedOut = true;
       controller.abort();
     }, 20_000);
-
-    setStatus("loading");
-    setOrganization(null);
-    setTargetYear(null);
-    setError(null);
 
     fetch(`/api/organizations?name=${encodeURIComponent(organizationName)}`, {
       signal: controller.signal,
@@ -130,6 +164,13 @@ export default function OrganizationProfile({ organizationName }: { organization
   const technologies = splitValues(organization.technology);
   const topics = splitValues(organization.topic);
   const years = splitValues(organization.years);
+  const participation = [
+    { year: targetYear - 1, present: organization.t1 ?? (years.includes(String(targetYear - 1)) ? true : null) },
+    { year: targetYear - 2, present: organization.t2 ?? (years.includes(String(targetYear - 2)) ? true : null) },
+    { year: targetYear - 3, present: organization.t3 ?? (years.includes(String(targetYear - 3)) ? true : null) },
+    { year: targetYear - 4, present: organization.t4 ?? (years.includes(String(targetYear - 4)) ? true : null) },
+    { year: targetYear - 5, present: organization.t5 ?? (years.includes(String(targetYear - 5)) ? true : null) },
+  ];
 
   return (
     <main className="min-h-screen bg-[#f8fafc] px-5 py-10 text-slate-950 sm:px-8 sm:py-14">
@@ -153,35 +194,53 @@ export default function OrganizationProfile({ organizationName }: { organization
           <DetailCard label={`${targetYear} probability`}>
             <p className="text-3xl font-semibold tracking-tight text-slate-950">{(organization.probability * 100).toFixed(1)}%</p>
           </DetailCard>
-          <DetailCard label="Participation years">
-            <div className="flex flex-wrap gap-2">
-              {years.length ? years.map((year) => <span key={year} className="rounded-md bg-slate-100 px-2 py-1 font-medium">{year}</span>) : <span>Not available</span>}
+          <DetailCard label="Participation history">
+            <div className="flex flex-wrap gap-3">
+              {participation.map(({ year, present }) => (
+                <div key={year} className="flex min-w-12 flex-col items-center gap-2">
+                  <div
+                    aria-label={`${year}: ${present === true ? "Yes" : present === false ? "No" : "Unknown"}`}
+                    className={`flex size-12 items-center justify-center rounded-lg text-white shadow-sm ${
+                      present === true ? "bg-emerald-500" : present === false ? "bg-rose-500" : "bg-slate-300 text-slate-700"
+                    }`}
+                  >
+                    <StatusIcon present={present} />
+                  </div>
+                  <span className="text-xs font-medium text-slate-600">{year}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-4 border-t border-slate-100 pt-3 text-xs font-medium text-slate-600">
+              <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-emerald-500" />Yes</span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-rose-500" />No</span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-slate-300" />Unknown</span>
             </div>
           </DetailCard>
           <DetailCard label="Links">
-            <div className="flex flex-wrap gap-3">
-              {organization.website ? <a href={organization.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-indigo-700 hover:text-indigo-900">Website <ArrowIcon direction="right" /></a> : null}
-              {organization.gsocLink ? <a href={organization.gsocLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-indigo-700 hover:text-indigo-900">GSoC page <ArrowIcon direction="right" /></a> : null}
+            <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-1">
+              {organization.website ? <a href={organization.website} target="_blank" rel="noreferrer" className="group/link inline-flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 font-semibold text-slate-800 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800 hover:shadow-sm"><span>Visit website</span><ExternalLinkIcon /></a> : null}
+              {organization.gsocLink ? <a href={organization.gsocLink} target="_blank" rel="noreferrer" className="group/link inline-flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 font-semibold text-slate-800 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800 hover:shadow-sm"><span>Open GSoC page</span><ExternalLinkIcon /></a> : null}
               {!organization.website && !organization.gsocLink ? <span>Not available</span> : null}
             </div>
           </DetailCard>
         </div>
 
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <div className="mt-4">
           <DetailCard label="Description">
             <p>{organization.description || "No description is available."}</p>
-          </DetailCard>
-          <DetailCard label="Technologies">
-            <div className="flex flex-wrap gap-2">
-              {technologies.length ? technologies.map((technology) => <span key={technology} className="rounded-md bg-indigo-50 px-2.5 py-1 text-indigo-800">{technology}</span>) : <span>Not available</span>}
-            </div>
-          </DetailCard>
-        </div>
-
-        <div className="mt-4">
-          <DetailCard label="Topics">
-            <div className="flex flex-wrap gap-2">
-              {topics.length ? topics.map((topic) => <span key={topic} className="rounded-md bg-slate-100 px-2.5 py-1 text-slate-700">{topic}</span>) : <span>Not available</span>}
+            <div className="mt-6 grid gap-5 border-t border-slate-100 pt-5 sm:grid-cols-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Technologies</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {technologies.length ? technologies.map((technology) => <span key={technology} className="rounded-full bg-indigo-50 px-2.5 py-1 text-indigo-800">{technology}</span>) : <span>Not available</span>}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Topics</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {topics.length ? topics.map((topic) => <span key={topic} className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700">{topic}</span>) : <span>Not available</span>}
+                </div>
+              </div>
             </div>
           </DetailCard>
         </div>
