@@ -1,36 +1,45 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Orglytics
 
-## Getting Started
+GSoC organization analytics and next-year participation prediction.
 
-First, run the development server:
+## What it does
+
+- Scrapes official Google Summer of Code organization pages and archives.
+- Collects descriptions, technologies, topics, websites, and GSoC links.
+- Tracks participation across `T-1` through `T-5`.
+- Exports the dataset to `src/backend/gsoc_organizations.xlsx`.
+- Trains and evaluates prediction models in `src/backend/gsoc_t_year_prediction.ipynb`.
+
+## Backend
+
+Create and activate a virtual environment first:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cd src/backend
+python -m venv .venv
+source .venv/bin/activate          # macOS/Linux
+# .venv\Scripts\Activate.ps1      # Windows PowerShell
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Install the dependencies and run the scraper:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+python -m pip install -r requirements.txt
+python gsoc_org_scraper.py
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The workbook contains `Orgs` and `Scrape log` sheets. Predictions estimate organization presence in the next GSoC year, not project acceptance or contributor selection.
 
-## Learn More
+To load predictions into Neon, copy `.env.example` to `.env`, fill in `DATABASE_URL`, then run:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+python load_predictions_to_neon.py --dry-run
+python load_predictions_to_neon.py
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Frontend
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm install
+npm run dev
+```

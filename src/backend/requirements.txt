@@ -5,3 +5,5 @@ playwright>=1.45.0
 pandas>=2.1.0
 scikit-learn>=1.4.0
 jupyter>=1.0.0
+psycopg[binary]>=3.2.0
+python-dotenv>=1.0.1
