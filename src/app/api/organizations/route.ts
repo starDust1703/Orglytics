@@ -7,7 +7,7 @@ import type { Organization, OrganizationsResponse } from "@/types/organization";
 
 type OrganizationRow = Organization & { targetYear: number };
 
-export async function GET() {
+export async function GET(request: Request) {
   await connection();
 
   const databaseUrl = getDatabaseUrl();
@@ -21,6 +21,10 @@ export async function GET() {
 
   try {
     const sql = neon(databaseUrl);
+    const organizationName = new URL(request.url).searchParams.get("name")?.trim() || null;
+    const organizationFilter = organizationName
+      ? sql`AND organization = ${organizationName}`
+      : sql``;
     const rows = (await sql`
       SELECT
         organization AS name,
@@ -37,10 +41,10 @@ export async function GET() {
         years,
         predicted_presence AS "predictedPresence",
         probability,
-        model,
         target_year AS "targetYear"
       FROM gsoc_predictions
       WHERE target_year = (SELECT MAX(target_year) FROM gsoc_predictions)
+      ${organizationFilter}
       ORDER BY organization ASC
     `) as OrganizationRow[];
 

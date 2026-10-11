@@ -13,7 +13,6 @@ export type Organization = {
   years: string;
   predictedPresence: boolean;
   probability: number;
-  model: string;
 };
 
 export type OrganizationsResponse = {
