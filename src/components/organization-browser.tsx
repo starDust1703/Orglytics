@@ -80,17 +80,24 @@ function MultiSelectDropdown({
   selected,
   onChange,
   emptyLabel,
+  searchable = false,
 }: {
   label: string;
   options: string[];
   selected: string[];
   onChange: (nextValues: string[]) => void;
   emptyLabel: string;
+  searchable?: boolean;
 }) {
   const summary = selected.length
     ? `${selected.length} selected`
     : emptyLabel;
   const dropdownRef = useRef<HTMLDetailsElement>(null);
+  const [optionQuery, setOptionQuery] = useState("");
+
+  const visibleOptions = options.filter((option) =>
+    option.toLocaleLowerCase().includes(optionQuery.trim().toLocaleLowerCase()),
+  );
 
   useEffect(() => {
     function closeOnOutsideClick(event: PointerEvent) {
@@ -121,6 +128,21 @@ function MultiSelectDropdown({
       </summary>
 
       <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+        {searchable ? (
+          <label className="relative block border-b border-slate-100 pb-2">
+            <span className="sr-only">Search {label.toLocaleLowerCase()}</span>
+            <span className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-slate-400">
+              <Icon name="search" className="size-4" />
+            </span>
+            <input
+              type="search"
+              value={optionQuery}
+              onChange={(event) => setOptionQuery(event.target.value)}
+              placeholder={`Search ${label.toLocaleLowerCase()}`}
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-8 pr-2 text-sm text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-600/20"
+            />
+          </label>
+        ) : null}
         <div className="flex items-center justify-between border-b border-slate-100 px-2 pb-2">
           <span className="text-xs text-slate-500">
             {selected.length ? `${selected.length} selected` : "Select any"}
@@ -136,8 +158,8 @@ function MultiSelectDropdown({
           ) : null}
         </div>
         <div className="max-h-64 overflow-y-auto pt-1">
-          {options.length ? (
-            options.map((option) => {
+          {visibleOptions.length ? (
+            visibleOptions.map((option) => {
               const isSelected = selected.includes(option);
               return (
                 <label
@@ -161,7 +183,9 @@ function MultiSelectDropdown({
               );
             })
           ) : (
-            <p className="px-2 py-3 text-sm text-slate-500">No options available.</p>
+            <p className="px-2 py-3 text-sm text-slate-500">
+              {options.length ? "No matching technologies." : "No options available."}
+            </p>
           )}
         </div>
       </div>
@@ -499,6 +523,7 @@ export default function OrganizationBrowser() {
                 setPage(1);
               }}
               emptyLabel="All technologies"
+              searchable
             />
 
             <MultiSelectDropdown
