@@ -9,6 +9,7 @@ const PAGE_SIZE = 50;
 
 type SortKey = "name" | "probability";
 type SortDirection = "asc" | "desc";
+type FilterMode = "any" | "all";
 
 const sortOptions: { key: SortKey; label: string }[] = [
   { key: "name", label: "Organization name" },
@@ -79,6 +80,8 @@ function MultiSelectDropdown({
   options,
   selected,
   onChange,
+  mode,
+  onModeChange,
   emptyLabel,
   searchable = false,
 }: {
@@ -86,6 +89,8 @@ function MultiSelectDropdown({
   options: string[];
   selected: string[];
   onChange: (nextValues: string[]) => void;
+  mode: FilterMode;
+  onModeChange: (nextMode: FilterMode) => void;
   emptyLabel: string;
   searchable?: boolean;
 }) {
@@ -143,9 +148,24 @@ function MultiSelectDropdown({
             />
           </label>
         ) : null}
+        <div className="flex items-center justify-between border-b border-slate-100 px-2 pb-2 pt-2">
+          <span className="text-xs text-slate-500">
+            {mode === "any" ? "Matches at least one" : "Matches every selected"}
+          </span>
+          <button
+            type="button"
+            aria-pressed={mode === "all"}
+            aria-label={`${label} filter mode: ${mode === "any" ? "Any" : "All"}. Toggle mode`}
+            title="Toggle between Any and All"
+            onClick={() => onModeChange(mode === "any" ? "all" : "any")}
+            className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-800 transition hover:border-indigo-300 hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-600/20"
+          >
+            <span>{mode === "any" ? "Any" : "All"}</span>
+          </button>
+        </div>
         <div className="flex items-center justify-between border-b border-slate-100 px-2 pb-2">
           <span className="text-xs text-slate-500">
-            {selected.length ? `${selected.length} selected` : "Select any"}
+            {selected.length ? `${selected.length} selected` : "Select values"}
           </span>
           {selected.length ? (
             <button
@@ -184,7 +204,9 @@ function MultiSelectDropdown({
             })
           ) : (
             <p className="px-2 py-3 text-sm text-slate-500">
-              {options.length ? "No matching technologies." : "No options available."}
+              {options.length
+                ? `No matching ${label.toLocaleLowerCase()}.`
+                : "No options available."}
             </p>
           )}
         </div>
@@ -202,7 +224,9 @@ export default function OrganizationBrowser() {
   const [direction, setDirection] = useState<SortDirection>("desc");
   const [searchQuery, setSearchQuery] = useState("");
   const [technologyFilters, setTechnologyFilters] = useState<string[]>([]);
+  const [technologyFilterMode, setTechnologyFilterMode] = useState<FilterMode>("any");
   const [yearFilters, setYearFilters] = useState<string[]>([]);
+  const [yearFilterMode, setYearFilterMode] = useState<FilterMode>("any");
   const [minimumProbability, setMinimumProbability] = useState(0);
   const [page, setPage] = useState(1);
 
@@ -273,13 +297,34 @@ export default function OrganizationBrowser() {
 
   const filteredOrganizations = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase();
+    const matchesFilter = (
+      availableValues: string[],
+      selectedValues: string[],
+      mode: FilterMode,
+    ) => {
+      if (!selectedValues.length) {
+        return true;
+      }
+      return mode === "all"
+        ? selectedValues.every((value) => availableValues.includes(value))
+        : selectedValues.some((value) => availableValues.includes(value));
+    };
+
     return organizations.filter((organization) =>
       (!query || organization.name.toLocaleLowerCase().includes(query)) &&
-      (!technologyFilters.length || technologyFilters.some((technology) => values(organization.technology).includes(technology))) &&
-      (!yearFilters.length || yearFilters.some((year) => values(organization.years).includes(year))) &&
+      matchesFilter(values(organization.technology), technologyFilters, technologyFilterMode) &&
+      matchesFilter(values(organization.years), yearFilters, yearFilterMode) &&
       organization.probability >= minimumProbability,
     );
-  }, [minimumProbability, organizations, searchQuery, technologyFilters, yearFilters]);
+  }, [
+    minimumProbability,
+    organizations,
+    searchQuery,
+    technologyFilterMode,
+    technologyFilters,
+    yearFilterMode,
+    yearFilters,
+  ]);
 
   const sortedOrganizations = useMemo(() => {
     const multiplier = direction === "asc" ? 1 : -1;
@@ -522,6 +567,11 @@ export default function OrganizationBrowser() {
                 setTechnologyFilters(nextValues);
                 setPage(1);
               }}
+              mode={technologyFilterMode}
+              onModeChange={(nextMode) => {
+                setTechnologyFilterMode(nextMode);
+                setPage(1);
+              }}
               emptyLabel="All technologies"
               searchable
             />
@@ -532,6 +582,11 @@ export default function OrganizationBrowser() {
               selected={yearFilters}
               onChange={(nextValues) => {
                 setYearFilters(nextValues);
+                setPage(1);
+              }}
+              mode={yearFilterMode}
+              onModeChange={(nextMode) => {
+                setYearFilterMode(nextMode);
                 setPage(1);
               }}
               emptyLabel="All years"
